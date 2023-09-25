@@ -17,12 +17,11 @@ package mutator
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"reflect"
 
 	calicov1alpha1 "github.com/gardener/gardener-extension-networking-calico/pkg/apis/calico/v1alpha1"
-	"github.com/gardener/gardener-extension-networking-calico/pkg/calico"
 	ciliumv1alpha1 "github.com/gardener/gardener-extension-networking-cilium/pkg/apis/cilium/v1alpha1"
-	"github.com/gardener/gardener-extension-networking-cilium/pkg/cilium"
 	extensionswebhook "github.com/gardener/gardener/extensions/pkg/webhook"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
@@ -92,66 +91,40 @@ func (s *shoot) Mutate(_ context.Context, newObj, oldObj client.Object) error {
 		return nil
 	}
 
-	if shoot.Spec.Networking != nil && shoot.Spec.Networking.Type != nil {
-		switch *shoot.Spec.Networking.Type {
-		case calico.ReleaseName:
-			overlay := &calicov1alpha1.Overlay{Enabled: false}
-			if EnableOverlayAsDefaultForCalico {
-				overlay = &calicov1alpha1.Overlay{Enabled: true}
+	if networking := shoot.Spec.Networking; networking != nil && networking.Type != nil {
+		var err error
+		var unstructuredNetworkConfig map[string]interface{}
+		if networking.ProviderConfig != nil {
+			unstructuredNetworkConfig, err = runtime.DefaultUnstructuredConverter.ToUnstructured(networking.ProviderConfig)
+			if err != nil {
+				return err
 			}
+		}
 
-			networkConfig, err := s.decodeCalicoNetworkConfig(shoot.Spec.Networking.ProviderConfig)
+		overlayEnabled := true
+		if _, found := unstructuredNetworkConfig["Overlay"]; !found {
+			overlayEnabled = false
+		} else if oldShoot != nil {
+			oldUnstructuredNetworkConfig, err := runtime.DefaultUnstructuredConverter.ToUnstructured(networking.ProviderConfig)
 			if err != nil {
 				return err
 			}
 
-			if oldShoot == nil && networkConfig.Overlay == nil {
-				networkConfig.Overlay = overlay
+			if oldOverlay, found := oldUnstructuredNetworkConfig["Overlay"]; found {
+				overlayEnabled = oldOverlay.(bool)
 			}
+		}
 
-			if oldShoot != nil && networkConfig.Overlay == nil {
-				oldNetworkConfig, err := s.decodeCalicoNetworkConfig(oldShoot.Spec.Networking.ProviderConfig)
-				if err != nil {
-					return err
-				}
+		unstructuredObject := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"overlay": map[string]interface{}{
+					"enabled": overlayEnabled,
+				},
+			},
+		}
 
-				if oldNetworkConfig.Overlay != nil {
-					networkConfig.Overlay = oldNetworkConfig.Overlay
-				}
-			}
-
-			shoot.Spec.Networking.ProviderConfig = &runtime.RawExtension{
-				Object: networkConfig,
-			}
-
-		case cilium.ReleaseName:
-			overlay := &ciliumv1alpha1.Overlay{Enabled: false}
-			if EnableOverlayAsDefaultForCilium {
-				overlay = &ciliumv1alpha1.Overlay{Enabled: true}
-			}
-			networkConfig, err := s.decodeCiliumNetworkConfig(shoot.Spec.Networking.ProviderConfig)
-			if err != nil {
-				return err
-			}
-
-			if oldShoot == nil && networkConfig.Overlay == nil {
-				networkConfig.Overlay = overlay
-			}
-
-			if oldShoot != nil && networkConfig.Overlay == nil {
-				oldNetworkConfig, err := s.decodeCiliumNetworkConfig(oldShoot.Spec.Networking.ProviderConfig)
-				if err != nil {
-					return err
-				}
-
-				if oldNetworkConfig.Overlay != nil {
-					networkConfig.Overlay = oldNetworkConfig.Overlay
-				}
-			}
-
-			shoot.Spec.Networking.ProviderConfig = &runtime.RawExtension{
-				Object: networkConfig,
-			}
+		shoot.Spec.Networking.ProviderConfig = &runtime.RawExtension{
+			Object: unstructuredObject,
 		}
 	}
 

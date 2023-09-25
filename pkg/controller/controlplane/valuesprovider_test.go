@@ -17,10 +17,9 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"time"
 
-	calicov1alpha1 "github.com/gardener/gardener-extension-networking-calico/pkg/apis/calico/v1alpha1"
-	"github.com/gardener/gardener-extension-networking-calico/pkg/calico"
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/controller/controlplane/genericactuator"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
@@ -229,15 +228,7 @@ var _ = Describe("ValuesProvider", func() {
 			Shoot: &gardencorev1beta1.Shoot{
 				Spec: gardencorev1beta1.ShootSpec{
 					Networking: &gardencorev1beta1.Networking{
-						Type: pointer.String(calico.ReleaseName),
-						ProviderConfig: &runtime.RawExtension{
-							Object: &calicov1alpha1.NetworkConfig{
-								TypeMeta: metav1.TypeMeta{},
-								Overlay: &calicov1alpha1.Overlay{
-									Enabled: false,
-								},
-							},
-						},
+						Type: pointer.String("foo"),
 						Pods: &cidr,
 					},
 					Kubernetes: gardencorev1beta1.Kubernetes{
@@ -319,6 +310,20 @@ var _ = Describe("ValuesProvider", func() {
 		Expect(err).NotTo(HaveOccurred())
 		err = vp.(inject.Client).InjectClient(c)
 		Expect(err).NotTo(HaveOccurred())
+
+		networkProviderConfig := &unstructured.Unstructured{Object: map[string]any{
+			"kind":       "FooNetworkConfig",
+			"apiVersion": "v1alpha1",
+			"overlay": map[string]any{
+				"enabled": false,
+			},
+		}}
+		networkProviderConfigData, err := runtime.Encode(unstructured.UnstructuredJSONScheme, networkProviderConfig)
+		Expect(err).NotTo(HaveOccurred())
+		clusterNoOverlay.Shoot.Spec.Networking.ProviderConfig = &runtime.RawExtension{
+			Object: networkProviderConfig,
+			Raw:    networkProviderConfigData,
+		}
 	})
 
 	AfterEach(func() {

@@ -17,20 +17,17 @@ package controlplane
 import (
 	"context"
 	"fmt"
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/Masterminds/semver"
-	calicov1alpha1 "github.com/gardener/gardener-extension-networking-calico/pkg/apis/calico/v1alpha1"
-	"github.com/gardener/gardener-extension-networking-calico/pkg/calico"
-	ciliumv1alpha1 "github.com/gardener/gardener-extension-networking-cilium/pkg/apis/cilium/v1alpha1"
-	"github.com/gardener/gardener-extension-networking-cilium/pkg/cilium"
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/controller/common"
 	"github.com/gardener/gardener/extensions/pkg/controller/controlplane/genericactuator"
 	extensionssecretsmanager "github.com/gardener/gardener/extensions/pkg/util/secret/manager"
-	"github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
@@ -892,44 +889,33 @@ func (vp *valuesProvider) getControlPlaneShootChartValues(
 	}, nil
 }
 
-func (vp *valuesProvider) isOverlayEnabled(network *v1beta1.Networking) (bool, error) {
-	if network == nil || network.ProviderConfig == nil {
+func (vp *valuesProvider) isOverlayEnabled(networking *gardencorev1beta1.Networking) (bool, error) {
+	enabled := true
+	if networking == nil || networking.ProviderConfig == nil {
 		return true, nil
 	}
 
-	// should not happen in practice because we will receive a RawExtension with Raw populated in production.
-	networkProviderConfig, err := network.ProviderConfig.MarshalJSON()
-	if err != nil {
-		return false, err
-	}
-	if string(networkProviderConfig) == "null" {
-		return true, nil
-	}
-
-	switch *network.Type {
-	case calico.ReleaseName:
-		networkConfig := &calicov1alpha1.NetworkConfig{}
-		if _, _, err := vp.Decoder().Decode(networkProviderConfig, nil, networkConfig); err != nil {
+	if networking.ProviderConfig.Raw != nil {
+		obj, err := runtime.Decode(unstructured.UnstructuredJSONScheme, networking.ProviderConfig.Raw)
+		if err != nil {
 			return false, err
 		}
-		o := networkConfig.Overlay
-		if o == nil {
-			return true, nil
+
+		u, ok := obj.(*unstructured.Unstructured)
+		if !ok {
+			return false, fmt.Errorf("object %T is not an unstructured.Unstructured", obj)
 		}
-		return o.Enabled, nil
-	case cilium.ReleaseName:
-		networkConfig := &ciliumv1alpha1.NetworkConfig{}
-		if _, _, err := vp.Decoder().Decode(networkProviderConfig, nil, networkConfig); err != nil {
+
+		enabled, ok, err = unstructured.NestedBool(u.UnstructuredContent(), "overlay", "enabled")
+		if err != nil {
 			return false, err
 		}
-		o := networkConfig.Overlay
-		if o == nil {
+		if !ok {
 			return true, nil
 		}
-		return o.Enabled, nil
 	}
 
-	return true, nil
+	return enabled, nil
 }
 
 func (vp *valuesProvider) isCSIManilaEnabled(cpConfig *api.ControlPlaneConfig) bool {

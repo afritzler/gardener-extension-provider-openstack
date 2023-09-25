@@ -57,8 +57,7 @@ func NewAdmissionCommand(ctx context.Context) *cobra.Command {
 			webhookOptions,
 		)
 
-		enableOverlayAsDefaultForCalico bool
-		enableOverlayAsDefaultForCilium bool
+		enableOverlayAsDefault bool
 	)
 
 	cmd := &cobra.Command{
@@ -104,15 +103,13 @@ func NewAdmissionCommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("could not add readycheck of webhook to manager: %w", err)
 			}
 
-			mutator.EnableOverlayAsDefaultForCalico = enableOverlayAsDefaultForCalico
-			mutator.EnableOverlayAsDefaultForCilium = enableOverlayAsDefaultForCilium
+			mutator.EnableOverlayAsDefault = enableOverlayAsDefault
 
 			return mgr.Start(ctx)
 		},
 	}
 
-	cmd.Flags().BoolVar(&enableOverlayAsDefaultForCalico, "enable-overlay-as-default-for-calico", true, "enables network overlay for all new calico shoot clusters")
-	cmd.Flags().BoolVar(&enableOverlayAsDefaultForCilium, "enable-overlay-as-default-for-cilium", true, "enables network overlay for all new cilium shoot clusters")
+	cmd.Flags().BoolVar(&enableOverlayAsDefault, "enable-overlay-as-default", true, "enables network overlay for all new shoot clusters")
 
 	verflag.AddFlags(cmd.Flags())
 	aggOption.AddFlags(cmd.Flags())
